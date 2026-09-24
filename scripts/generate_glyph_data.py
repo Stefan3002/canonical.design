@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """Generate `_data/glyphs.yaml` from the bundled Ubuntu web fonts.
 
-The glyph specimen page renders the real character coverage of the fonts we
-ship in `static/fonts`, so the data has to be derived from those files rather
-than hand-maintained. Re-run this script whenever the font files are updated:
+The glyph specimen page renders the real character coverage, vertical metrics
+and OpenType feature support of the fonts we ship in `static/fonts`, so the
+data has to be derived from those files rather than hand-maintained.
+
+To update the fonts: drop the new `.woff2` files into `static/fonts`, delete
+the old ones, then run
 
     pip install fonttools brotli
     python scripts/generate_glyph_data.py
+
+Font files are discovered by face prefix, so their version suffix can change
+freely without touching this script. Remember to update the `@font-face` rules
+in `static/sass/_fonts.scss` and the preloads in `templates/base.html` to
+match; those reference the same files but are not read from here.
 
 The output is committed to the repository so that neither the build nor the
 running app needs fontTools as a dependency.
@@ -22,18 +30,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FONT_DIR = REPO_ROOT / "static" / "fonts"
 OUTPUT = REPO_ROOT / "_data" / "glyphs.yaml"
 
-# Subsets that make up each family. The roman Ubuntu face is split across
-# several subsets; Ubuntu Mono ships as a single Latin file.
-ROMAN_SUBSETS = [
-    "Ubuntu-latin-v0.896a",
-    "Ubuntu-latin-extended-v0.896a",
-    "Ubuntu-greek-v0.896a",
-    "Ubuntu-greek-extended-v0.896a",
-    "Ubuntu-cyrillic-v0.896a",
-    "Ubuntu-cyrillic-extended-v0.896a",
+# The faces bundled in `static/fonts`, matched longest prefix first so that
+# `Ubuntu-Italic-*` is not swallowed by the `Ubuntu-*` prefix.
+FACE_PREFIXES = [
+    ("italic", "Ubuntu-Italic"),
+    ("mono", "UbuntuMono"),
+    ("roman", "Ubuntu"),
 ]
-ITALIC_SUBSETS = ["Ubuntu-Italic-latin-v0.896a"]
-MONO_SUBSETS = ["UbuntuMono-latin-v0.869"]
 
 # Displayed in this order. Everything else falls through to "Symbols".
 SCRIPT_ORDER = [
@@ -44,6 +47,57 @@ SCRIPT_ORDER = [
     ("punctuation", "Punctuation"),
     ("symbols", "Symbols"),
 ]
+
+
+def discover_subsets():
+    """Group the bundled font files by face.
+
+    Font filenames carry their version (`Ubuntu-latin-v0.896a.woff2`), so
+    listing them here would mean hand-editing a constant per subset on every
+    font update -- the chore this script exists to remove. Read the directory
+    instead, and let a dropped-in file of any version be picked up as-is.
+    """
+    found = {key: [] for key, _ in FACE_PREFIXES}
+    unmatched = []
+
+    for path in sorted(FONT_DIR.glob("*.woff2")):
+        for key, prefix in FACE_PREFIXES:
+            if path.stem.startswith(f"{prefix}-"):
+                found[key].append(path.stem)
+                break
+        else:
+            unmatched.append(path.name)
+
+    if unmatched:
+        raise SystemExit(
+            "Unrecognised font files in\n"
+            f"  {FONT_DIR}:\n    "
+            + "\n    ".join(unmatched)
+            + "\nAdd a prefix to FACE_PREFIXES, or rename to match an "
+            "existing face."
+        )
+
+    missing = [key for key, names in found.items() if not names]
+    if missing:
+        raise SystemExit(
+            f"No font files found in {FONT_DIR} for: "
+            f"{', '.join(sorted(missing))}.\n"
+            "Expected names like 'Ubuntu-latin-v0.896a.woff2'."
+        )
+
+    return found
+
+
+def primary(subsets):
+    """The subset to read vertical metrics from.
+
+    Metrics are identical across a face's subsets, so prefer the plain Latin
+    file; it is the one a reader would check by hand.
+    """
+    for name in subsets:
+        if "-latin-v" in name:
+            return name
+    return subsets[0]
 
 
 def load(subset):
@@ -169,18 +223,23 @@ def describe(char):
 
 
 def main():
-    roman = codepoints(ROMAN_SUBSETS)
-    italic = codepoints(ITALIC_SUBSETS)
-    mono = codepoints(MONO_SUBSETS)
+    fonts = discover_subsets()
+    roman_subsets = fonts["roman"]
+    italic_subsets = fonts["italic"]
+    mono_subsets = fonts["mono"]
 
-    roman_features = feature_tags(ROMAN_SUBSETS)
-    italic_features = feature_tags(ITALIC_SUBSETS)
-    mono_features = feature_tags(MONO_SUBSETS)
+    roman = codepoints(roman_subsets)
+    italic = codepoints(italic_subsets)
+    mono = codepoints(mono_subsets)
+
+    roman_features = feature_tags(roman_subsets)
+    italic_features = feature_tags(italic_subsets)
+    mono_features = feature_tags(mono_subsets)
 
     # Which characters each toggle actually rewrites. Unioned across families:
     # every codepoint one family substitutes but another does not is absent
     # from the latter's cmap anyway, so the coverage flags already hide it.
-    all_subsets = ROMAN_SUBSETS + ITALIC_SUBSETS + MONO_SUBSETS
+    all_subsets = roman_subsets + italic_subsets + mono_subsets
     small_caps_glyphs = feature_codepoints(all_subsets, {"smcp", "c2sc"})
     text_figure_glyphs = feature_codepoints(all_subsets, {"onum"})
 
@@ -218,7 +277,7 @@ def main():
                     "textFigures": "onum" in roman_features,
                     "italic": True,
                 },
-                "metrics": metrics("Ubuntu-latin-v0.896a"),
+                "metrics": metrics(primary(roman_subsets)),
             },
             {
                 "id": "ubuntu-mono",
@@ -230,7 +289,7 @@ def main():
                     # No italic Ubuntu Mono file is bundled.
                     "italic": False,
                 },
-                "metrics": metrics("UbuntuMono-latin-v0.869"),
+                "metrics": metrics(primary(mono_subsets)),
             },
         ],
         "italicFeatures": {
@@ -254,7 +313,11 @@ def main():
         yaml.safe_dump(data, stream, allow_unicode=True, sort_keys=False, width=100)
 
     total = sum(len(group["glyphs"]) for group in data["scripts"])
-    print(f"Wrote {total} glyphs to {OUTPUT.relative_to(REPO_ROOT)}")
+    print(f"Read {sum(len(v) for v in fonts.values())} font files:")
+    for key, _ in FACE_PREFIXES:
+        for name in fonts[key]:
+            print(f"  {key:<7} {name}")
+    print(f"\nWrote {total} glyphs to {OUTPUT.relative_to(REPO_ROOT)}")
     for group in data["scripts"]:
         print(f"  {group['name']:<12} {len(group['glyphs']):>5}")
 
