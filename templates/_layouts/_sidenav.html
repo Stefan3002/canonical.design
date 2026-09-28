@@ -17,7 +17,7 @@
                 {# the chevron flags this page as a parent and toggles its children #}
                 <button class="p-side-navigation__expand js-sidenav-expand"
                         aria-expanded="{{ 'true' if is_open_branch else 'false' }}"
-                        aria-label="{{ 'Hide' if is_open_branch else 'Show' }} submenu for {{ item.title }}"></button>
+                        aria-label="{{ 'Hide' if is_open_branch else 'Show' }} submenu for {{ item.title }}" type="button"></button>
                 {# the parent link already covers the section index, so drop its self-referencing child #}
                 <ul class="p-side-navigation__list">
                   {{ loop(item.children | rejectattr('url', 'equalto', item.url) ) }}
