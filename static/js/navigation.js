@@ -252,3 +252,22 @@ const initNavigationSliding = () => {
 };
 
 initNavigationSliding();
+
+// Chevrons in the side navigation mark parent pages and expand their children.
+const initSideNavigationExpand = () => {
+  document.querySelectorAll(".js-sidenav-expand").forEach((button) => {
+    button.addEventListener("click", () => {
+      const isExpanded = button.getAttribute("aria-expanded") === "true";
+      const label = button.getAttribute("aria-label") || "";
+      button.setAttribute("aria-expanded", isExpanded ? "false" : "true");
+      button.setAttribute(
+        "aria-label",
+        isExpanded
+          ? label.replace(/^Hide/, "Show")
+          : label.replace(/^Show/, "Hide"),
+      );
+    });
+  });
+};
+
+initSideNavigationExpand();
