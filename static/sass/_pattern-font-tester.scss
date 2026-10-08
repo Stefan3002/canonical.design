@@ -9,6 +9,7 @@
       &[data-style="normal"] {
         font-style: normal;
       }
+
       &[data-style="italic"] {
         font-style: italic;
       }
@@ -16,6 +17,7 @@
       &[data-family="ubuntu"] {
         font-family: "Ubuntu variable", sans-serif;
       }
+
       &[data-family="monospace"] {
         font-family: "Ubuntu Mono variable", monospace;
       }
@@ -23,9 +25,11 @@
       &[data-color="black"] {
         color: $color-dark;
       }
+
       &[data-color="red"] {
         color: $color-negative;
       }
+
       &[data-color="orange"] {
         color: $color-accent;
       }
